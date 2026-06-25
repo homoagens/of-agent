@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Environment / secrets
+.env
+*.env.local
+
+# Session files (stored inside OpenFOAM case dirs, not here)
+.of_agent_session.json
+
+# Backups created by patch_file / write_file
+*.bak
+
+# Test case data (may contain large simulation files)
+test_case/
+
+# OS
+.DS_Store
+Thumbs.db
