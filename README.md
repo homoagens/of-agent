@@ -1,23 +1,42 @@
-# OF-Agent
+<h2 align="center">🌊 OF-Agent</h2>
 
-An interactive AI assistant for monitoring and controlling live OpenFOAM CFD simulations — directly from your terminal.
+<p align="center">
+  <em>Talk to your OpenFOAM simulation while it runs.</em>
+</p>
 
-OF-Agent connects to a running simulation (locally or via SSH), reads the log files and case directory in real time, and lets you ask plain-language questions. It diagnoses convergence, estimates remaining time, and can safely modify `controlDict` parameters while the solver is running.
+<p align="center">
+  Live CFD monitoring  ·  Plain-language diagnosis  ·  Local or over SSH  ·  Runs on your own LLM
+</p>
+
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a085?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/interface-terminal%20REPL-43a047?style=flat-square" alt="Terminal REPL">
+  <img src="https://img.shields.io/badge/provider-any%20OpenAI--compatible-f97316?style=flat-square" alt="Any provider">
+</p>
 
 ---
 
-## Features
+OF-Agent is an interactive AI assistant for monitoring and controlling **live OpenFOAM CFD simulations** — straight from your terminal.
 
-- **Natural language interface** — ask "is it converging?", "how long left?", "why did it crash?" in any language
-- **Local and remote** — attach to a case on your machine or on an HPC node over SSH; the interface is identical
-- **Structured decision process** — every diagnosis follows a hypothesis → challenge → verdict pipeline to avoid premature conclusions
-- **Safe modifications** — `controlDict` edits require explicit confirmation, create a `.bak` backup, and take effect immediately (OpenFOAM hot-reloads the file)
-- **Session memory** — conversation history is persisted inside the case directory; pick up where you left off after a restart
-- **Slash commands** — instant diagnostic commands that bypass the LLM: `/status`, `/log`, `/residuals`, `/courant`, `/eta`, `/ls`, `/debug`, `/clear`
+It attaches to a running case (locally or over SSH), reads the log and case directory in real time, and lets you ask plain-language questions. It diagnoses convergence, estimates remaining wall time, explains crashes, and can safely tweak `controlDict` parameters *while the solver is running*.
+
+> Stop tailing `log.pimpleFoam` and squinting at residuals. Ask *"is it converging?"* and get a real answer.
 
 ---
 
-## How It Works
+## ✦ Features
+
+- **🗣 Natural language** — ask "is it converging?", "how long left?", "why did it crash?" in any language
+- **🌐 Local or remote** — attach to a case on your machine or an HPC node over SSH; the interface is identical
+- **🧪 Structured diagnosis** — every conclusion follows a hypothesis → challenge → verdict pipeline, so the agent disproves itself before committing
+- **🛡 Safe edits** — `controlDict` changes require explicit confirmation, create a `.bak` backup, and take effect immediately (OpenFOAM hot-reloads the file)
+- **💾 Session memory** — conversation history is persisted inside the case directory; resume after a restart
+- **⚡ Slash commands** — instant diagnostics that bypass the LLM: `/status`, `/log`, `/residuals`, `/courant`, `/eta`, `/ls`, `/debug`, `/clear`
+
+---
+
+## 🧠 How it works
 
 OF-Agent uses a **ReAct loop** (Reasoning + Acting): the LLM responds with a `thought` and an `action`, the action calls a skill (Python function), the result is fed back as an observation, and the loop repeats until the agent produces a final `reply`.
 
@@ -41,67 +60,41 @@ All file I/O goes through a **transport abstraction** (`LocalContext` / `SSHCont
 
 ---
 
-## Installation
+## ⚡ Quickstart
 
 ```bash
 git clone https://github.com/homoagens/of-agent.git
 cd of-agent
 pip install -r requirements.txt
+pip install paramiko        # optional, for SSH support
 ```
 
-For SSH support:
+Point it at your LLM (interactive — writes `.env` for you):
+
+```bat
+configure.bat     :: Windows
+./configure.sh    # Linux / macOS
+```
+
+Then attach to a case:
+
 ```bash
-pip install paramiko
-```
-
----
-
-## Configuration
-
-Copy the example environment file and edit it:
-
-```bash
-cp .env.example .env
-```
-
-```env
-# .env
-OF_AGENT_BACKEND_URL=http://localhost:11434   # your LLM API endpoint
-OF_AGENT_BACKEND_KEY=local                    # API key (any string for local)
-OF_AGENT_MODEL=llama3.1:8b                    # model name on your backend
-```
-
-OF-Agent works with any **OpenAI-compatible API**: [Ollama](https://ollama.com), [LM Studio](https://lmstudio.ai), [llama.cpp server](https://github.com/ggerganov/llama.cpp), OpenRouter, or a direct Anthropic/OpenAI endpoint.
-
-For best results use a model with at least 8B parameters and good instruction following (Llama 3.1 8B, Qwen 2.5 14B, Gemma 3 12B, etc.).
-
----
-
-## Usage
-
-**Local case:**
-```bash
+# Local
 python main.py /path/to/openfoam/case
-```
 
-**Remote case over SSH:**
-```bash
+# Remote over SSH
 python main.py user@hostname:/remote/path/to/case
 python main.py cfd@hpc.lab.example:/scratch/runs/motorBike --key ~/.ssh/id_rsa
 python main.py simulo@10.0.0.5:/runs/cavity --port 2222 --password mypass
 ```
 
-**Options:**
-```
---port      SSH port (default: 22)
---key       path to SSH private key
---password  SSH password
---timeout   SSH connection timeout in seconds (default: 30)
-```
+SSH options: `--port` (default 22), `--key`, `--password`, `--timeout` (default 30s).
+
+OF-Agent works with any **OpenAI-compatible API**: [Ollama](https://ollama.com), [LM Studio](https://lmstudio.ai), [llama.cpp server](https://github.com/ggerganov/llama.cpp), vLLM, OpenRouter, or a direct Anthropic/OpenAI endpoint. For best results use a model with strong instruction following (Llama 3.1 8B, Qwen 2.5 14B, Gemma 3 12B, or larger).
 
 ---
 
-## Slash Commands
+## ⌨️ Slash commands
 
 These execute instantly without an LLM call:
 
@@ -122,7 +115,7 @@ These execute instantly without an LLM call:
 
 ---
 
-## Available Skills
+## 🧰 Available skills
 
 | Skill | Description |
 |---|---|
@@ -147,7 +140,7 @@ These execute instantly without an LLM call:
 
 ---
 
-## Example Session
+## 🎬 Example session
 
 ```
 OF-Agent  —  live SSH mode
@@ -191,7 +184,7 @@ OF-Agent: goodbye.
 
 ---
 
-## Architecture
+## 🗂 Architecture
 
 ```
 of-agent/
@@ -210,6 +203,23 @@ of-agent/
 
 ---
 
+## 🌱 Part of Homo Agens
+
+OF-Agent is part of **[Homo Agens](https://github.com/homoagens)** — an open-source effort exploring autonomous agents, local inference, and a simple thesis:
+
+> The model matters less than the architecture around it.
+> Memory, tools, transparency, and execution control are what turn an LLM into something that actually gets things done.
+
+---
+
+## 📬 Contact
+
+If you work on agents, local AI, open-source tooling, or scientific computing — let's talk.
+
+[Email](mailto:homoagens1@gmail.com) &nbsp;·&nbsp; [X / Twitter](https://x.com/homoagens1)
+
+---
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](./LICENSE)
