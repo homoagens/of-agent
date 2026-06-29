@@ -1,0 +1,7 @@
+# Normalize line endings so scripts work on every platform.
+# Shell scripts MUST stay LF or they break on Linux/macOS.
+*.sh   text eol=lf
+# Windows batch files need CRLF.
+*.bat  text eol=crlf
+# Let git auto-handle the rest by content.
+*      text=auto

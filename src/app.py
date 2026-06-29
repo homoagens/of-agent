@@ -3,7 +3,7 @@
 # Chat with the agent over an OpenFOAM case (local path or user@host:/path).
 # Mirrors the CLI REPL (main.py) in the browser: set a case, then ask questions.
 #
-# Run:  ./start.sh   (or: python app.py)   ->   http://localhost:7862
+# Run:  ./start.sh   (or: python src/app.py)   ->   http://localhost:7862
 
 import json
 import os

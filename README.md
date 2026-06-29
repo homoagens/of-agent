@@ -65,13 +65,13 @@ myhpc:/scratch/runs/motorBike          SSH alias from ~/.ssh/config
 <details>
 <summary>Prefer the terminal?</summary>
 
-After steps 1–2:
+After steps 1–2 (use the venv's Python, e.g. `venv/bin/python` or `venv\Scripts\python`):
 
 ```bash
-python main.py /path/to/openfoam/case
-python main.py user@hostname:/remote/path/to/case
-python main.py myhpc:/scratch/runs/motorBike            # ~/.ssh/config alias
-python main.py simulo@10.0.0.5:/runs/cavity --port 2222 --password mypass
+python src/main.py /path/to/openfoam/case
+python src/main.py user@hostname:/remote/path/to/case
+python src/main.py myhpc:/scratch/runs/motorBike            # ~/.ssh/config alias
+python src/main.py simulo@10.0.0.5:/runs/cavity --port 2222 --password mypass
 ```
 
 SSH options: `--port` (default 22), `--key`, `--password`, `--timeout` (default 30s).

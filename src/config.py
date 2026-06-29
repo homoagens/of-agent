@@ -7,11 +7,11 @@
 import os
 from pathlib import Path
 
-# Load a .env file sitting next to this module, if present, so the values
-# written by configure.sh / configure.bat are actually picked up.
-# Existing environment variables always take precedence over the file.
+# Load the .env file from the repository root (one level above this src/
+# directory), if present, so the values written by configure.sh / configure.bat
+# are actually picked up. Existing environment variables take precedence.
 def _load_dotenv() -> None:
-    env_path = Path(__file__).resolve().parent / ".env"
+    env_path = Path(__file__).resolve().parent.parent / ".env"
     if not env_path.exists():
         return
     for line in env_path.read_text(encoding="utf-8").splitlines():
