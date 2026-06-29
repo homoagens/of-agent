@@ -252,6 +252,11 @@ examples:
   python main.py cfd@hpc.example.com:/scratch/runs/cavity
   python main.py cfd@10.0.0.5:/runs/cavity --port 2222
   python main.py user@10.0.0.5:/home/user/case --password mypass
+  python main.py myhpc:/scratch/runs/cavity        # alias from ~/.ssh/config
+
+SSH targets accept either "user@host:/path" or "alias:/path", where the
+alias is a Host entry in ~/.ssh/config (HostName, User, Port, IdentityFile
+and ProxyCommand are honoured, exactly like the `ssh` command).
         """,
     )
     parser.add_argument(

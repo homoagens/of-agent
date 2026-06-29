@@ -24,8 +24,10 @@ if "!MODEL!"=="" set "MODEL=%DEFAULT_MODEL%"
 set /p API_KEY=API key [local]:
 if "!API_KEY!"=="" set "API_KEY=local"
 
-set /p TEMP=Temperature [0.2]:
-if "!TEMP!"=="" set "TEMP=0.2"
+rem NB: do not use the variable name TEMP — it is a reserved Windows env var
+rem (the temp directory), so set /p would keep that value instead of 0.2.
+set /p TEMPERATURE=Temperature [0.2]:
+if "!TEMPERATURE!"=="" set "TEMPERATURE=0.2"
 
 if exist .env (
     copy /Y .env .env.backup >nul
@@ -37,13 +39,13 @@ if exist .env (
     echo OF_AGENT_BACKEND_URL=!BASE_URL!
     echo OF_AGENT_BACKEND_KEY=!API_KEY!
     echo OF_AGENT_MODEL=!MODEL!
-    echo OF_AGENT_TEMPERATURE=!TEMP!
+    echo OF_AGENT_TEMPERATURE=!TEMPERATURE!
 ) > .env
 
 echo.
 echo Configuration saved to .env:
 echo   backend URL:  !BASE_URL!
 echo   model:        !MODEL!
-echo   temperature:  !TEMP!
+echo   temperature:  !TEMPERATURE!
 echo.
 endlocal

@@ -165,6 +165,12 @@ class SSHContext:
         self._remote_root = remote_root.rstrip("/")
 
         client = paramiko.SSHClient()
+        # Honour the user's known_hosts so previously-seen hosts are trusted,
+        # then fall back to auto-adding unknown ones.
+        try:
+            client.load_system_host_keys()
+        except Exception:
+            pass
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         connect_kw: dict = dict(hostname=hostname, port=port, timeout=timeout)
@@ -175,9 +181,61 @@ class SSHContext:
         if password:
             connect_kw["password"] = password
 
+        # Resolve aliases from ~/.ssh/config (HostName, User, Port, IdentityFile,
+        # ProxyCommand, ...) so that `alias:/path` works just like the `ssh`
+        # command. CLI arguments (user, port, key) always take precedence.
+        sock = self._apply_ssh_config(hostname, connect_kw)
+
+        # Let paramiko look at the SSH agent and the default keys (~/.ssh/id_*)
+        # when no explicit key/password was given — this is what makes plain
+        # `alias:/path` or `user@host:/path` work with an existing key.
+        connect_kw.setdefault("allow_agent", True)
+        connect_kw.setdefault("look_for_keys", True)
+        if sock is not None:
+            connect_kw["sock"] = sock
+
         client.connect(**connect_kw)
         self._client = client
         self._sftp   = client.open_sftp()
+
+    @staticmethod
+    def _apply_ssh_config(host: str, connect_kw: dict):
+        """
+        Merge settings from ~/.ssh/config for `host` into connect_kw, without
+        overriding anything the caller already supplied on the command line.
+        Returns a ProxyCommand socket if the config defines one, else None.
+        """
+        cfg_path = os.path.expanduser("~/.ssh/config")
+        if not os.path.exists(cfg_path):
+            return None
+
+        ssh_cfg = paramiko.SSHConfig()
+        try:
+            with open(cfg_path) as f:
+                ssh_cfg.parse(f)
+        except Exception:
+            return None
+
+        opts = ssh_cfg.lookup(host)
+
+        # Real hostname behind the alias.
+        if "hostname" in opts:
+            connect_kw["hostname"] = opts["hostname"]
+        # Only fill in values the user did not pass explicitly.
+        if "user" in opts and "username" not in connect_kw:
+            connect_kw["username"] = opts["user"]
+        if "port" in opts and connect_kw.get("port") in (None, 22):
+            connect_kw["port"] = int(opts["port"])
+        if "identityfile" in opts and "key_filename" not in connect_kw:
+            # paramiko returns a list of identity files.
+            connect_kw["key_filename"] = [
+                os.path.expanduser(p) for p in opts["identityfile"]
+            ]
+
+        proxy = opts.get("proxycommand")
+        if proxy:
+            return paramiko.ProxyCommand(proxy)
+        return None
 
     # ── context manager ───────────────────────────────────────────────────
     def __enter__(self):

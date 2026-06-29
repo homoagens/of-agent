@@ -72,6 +72,25 @@ def _dbg_print(*args, **kwargs) -> None:
         console.print(*args, **kwargs)
 
 
+def _activity_label_text(cfg: AgentConfig, action: str, args: dict) -> str:
+    """
+    Resolve the short human-readable activity label for a skill call.
+    Returns "" for skills that manage their own output (empty template) or
+    for actions that are not real skills.
+    """
+    if action not in cfg.skills:
+        return ""
+    label_tmpl = cfg.activity_labels.get(action)
+    if label_tmpl is None:
+        label_tmpl = action.replace("_", " ")
+    if label_tmpl == "":
+        return ""
+    try:
+        return label_tmpl.format(**args) if args else label_tmpl
+    except (KeyError, IndexError):
+        return label_tmpl
+
+
 def _activity_line(cfg: AgentConfig, action: str, args: dict) -> None:
     """
     In non-DEBUG mode print a short human-readable line.
@@ -82,20 +101,9 @@ def _activity_line(cfg: AgentConfig, action: str, args: dict) -> None:
     if config.DEBUG:
         console.print(f"[cyan]ACTION:[/cyan] {action}({args})")
         return
-    # Non-DEBUG: only print for real skills
-    if action not in cfg.skills:
-        return
-    label_tmpl = cfg.activity_labels.get(action)
-    if label_tmpl is None:
-        label_tmpl = action.replace("_", " ")
-    if label_tmpl == "":
-        # Empty label = skill manages its own output (e.g. confirm_with_user)
-        return
-    try:
-        label = label_tmpl.format(**args) if args else label_tmpl
-    except (KeyError, IndexError):
-        label = label_tmpl
-    console.print(f"  [dim]>>[/dim] {label}")
+    label = _activity_label_text(cfg, action, args)
+    if label:
+        console.print(f"  [dim]>>[/dim] {label}")
 
 
 # ── internals ─────────────────────────────────────────────────────────────────
@@ -126,11 +134,54 @@ def _call_skill(cfg: AgentConfig, action: str, args: dict) -> str:
 
 # ── public API ────────────────────────────────────────────────────────────────
 
+def _emit(on_event, etype: str, **kw) -> None:
+    """Send a progress event to the optional listener, swallowing its errors."""
+    if on_event is None:
+        return
+    try:
+        on_event({"type": etype, **kw})
+    except Exception:
+        pass
+
+
+def _llm_call(cfg, messages, model, temperature, on_event):
+    """
+    One LLM call. If a listener is attached, stream tokens to it (forwarding the
+    model's live "thinking" channel) and fall back to a plain call on failure.
+    Returns the full answer text.
+    """
+    if on_event is not None:
+        thinking_parts: list[str] = []
+        def on_token(channel, text):
+            if channel == "thinking":
+                thinking_parts.append(text)
+            _emit(on_event, "token", channel=channel, text=text)
+        try:
+            return llm_client.call_llm_stream(
+                messages=messages, model=model,
+                temperature=temperature, max_tokens=config.MAX_TOKENS,
+                on_token=on_token,
+            )
+        except Exception:
+            # Streaming failed: either the backend doesn't support it, or a
+            # thinking model spent the whole budget reasoning and left the
+            # answer channel empty. Salvage a JSON object from the reasoning
+            # channel if one is there, otherwise fall back to a blocking call.
+            thinking = "".join(thinking_parts)
+            if "{" in thinking and "}" in thinking:
+                return thinking
+    return llm_client.call_llm(
+        messages=messages, model=model,
+        temperature=temperature, max_tokens=config.MAX_TOKENS,
+    )
+
+
 def run_agent(
     cfg: AgentConfig,
     user_task: str,
     log_path: Optional[Path] = None,
     initial_messages: Optional[list] = None,
+    on_event: Optional[Callable] = None,
 ) -> Optional[dict]:
     """
     Run the ReAct loop.
@@ -141,6 +192,10 @@ def run_agent(
     initial_messages : optional list of {role, content} inserted BETWEEN the
                        system prompt and user_task (cross-turn memory pattern).
                        If None the behaviour is identical to no history.
+    on_event         : optional callback(dict) receiving progress events for a
+                       live UI. Event types: "step", "token" (channel +
+                       text), "thought", "action" (label), "observation",
+                       "final" (reply). When set, LLM calls are streamed.
 
     Returns the final dict (containing one of the final_keys) or None.
     The dict is enriched with: name (str), forced (bool).
@@ -168,8 +223,11 @@ def run_agent(
             style="bold red"
         ))
 
+    bad_format = 0   # consecutive responses that were not valid JSON
+
     for step in range(1, max_steps + 1):
         _dbg_print(f"\n[dim]--- Step {step}/{max_steps} ---[/dim]")
+        _emit(on_event, "step", step=step, max=max_steps)
 
         # ── intra-run memory compression ──────────────────────────────
         messages    = memory.compress(messages, config.MAX_MESSAGES,
@@ -181,23 +239,47 @@ def run_agent(
 
         # ── LLM call ──────────────────────────────────────────────────
         try:
-            text = llm_client.call_llm(
-                messages=messages, model=model,
-                temperature=temperature, max_tokens=config.MAX_TOKENS,
-            )
+            text = _llm_call(cfg, messages, model, temperature, on_event)
         except Exception as e:
             console.print(f"[red]LLM error at step {step}: {e}[/red]")
+            _emit(on_event, "error", error=f"LLM error: {e}")
+            # Don't retry with identical context (that causes infinite loops):
+            # nudge the model to stop reasoning and emit the JSON.
+            messages.append({"role": "user", "content": (
+                "The previous step produced no usable output — you likely spent "
+                "the whole token budget reasoning. STOP reasoning and output ONLY "
+                "a single compact JSON object now."
+            )})
             continue
 
         # ── JSON parsing ──────────────────────────────────────────────
         try:
             response = extract_json(text)
+            bad_format = 0
         except RuntimeError as e:
             console.print(f"[red]{e}[/red]")
+            bad_format += 1
+            prose = text.strip()
+            # Small models often answer in plain prose instead of the required
+            # JSON. Give ONE corrective nudge; if it still won't comply, accept
+            # the prose as the final answer rather than looping or erroring out.
+            if bad_format >= 2 and prose:
+                _dbg_print("[yellow]Still no JSON — accepting prose as final reply.[/yellow]")
+                _emit(on_event, "final", reply=prose)
+                return {"reply": prose, "name": cfg.name, "forced": True}
+            messages.append({"role": "assistant", "content": text[:2000] or "(no output)"})
+            messages.append({"role": "user", "content": (
+                "Your previous reply was not valid JSON. Reply with ONLY one "
+                "compact JSON object, nothing else, no prose, no markdown. "
+                'To answer the user use exactly: {"thought":"...","reply":"<your answer>"} '
+                'To call a tool use: {"thought":"...","action":"...","args":{...}}'
+            )})
             continue
 
         thought = response.get("thought", "")
         _dbg_panel(thought, "THOUGHT", "bold yellow")
+        if thought:
+            _emit(on_event, "thought", text=str(thought))
 
         # ── FINAL — one of the final_keys is present ──────────────────
         final_key = next((k for k in cfg.final_keys if k in response), None)
@@ -211,6 +293,8 @@ def run_agent(
             )
             if log_path is not None:
                 _log_step(log_path, {"step": step, **response})
+            _emit(on_event, "final",
+                  reply=str(response.get(final_key, "")))
             response["name"]   = cfg.name
             response["forced"] = False
             return response
@@ -250,9 +334,12 @@ def run_agent(
             continue
 
         _activity_line(cfg, action, args)
+        _emit(on_event, "action", action=action,
+              label=_activity_label_text(cfg, action, args))
 
         observation = _call_skill(cfg, action, args)
         _dbg_panel(observation, "OBSERVATION", "cyan")
+        _emit(on_event, "observation", text=observation[:2000])
 
         if log_path is not None:
             _log_step(log_path, {
@@ -281,14 +368,13 @@ def run_agent(
     messages = memory.compress(messages, config.MAX_MESSAGES,
                                f"forced {cfg.name}", model=model)
 
+    _emit(on_event, "step", step=max_steps + 1, max=max_steps + 1)
     try:
-        text     = llm_client.call_llm(
-            messages=messages, model=model,
-            temperature=temperature, max_tokens=config.MAX_TOKENS,
-        )
+        text     = _llm_call(cfg, messages, model, temperature, on_event)
         response = extract_json(text)
     except Exception as e:
         console.print(f"[red]Forced verdict failed: {e}[/red]")
+        _emit(on_event, "error", error=f"Forced verdict failed: {e}")
         return None
 
     thought = response.get("thought", "")
@@ -302,6 +388,9 @@ def run_agent(
     )
     if log_path is not None:
         _log_step(log_path, {"step": max_steps + 1, **response, "forced": True})
+    final_key = next((k for k in cfg.final_keys if k in response), None)
+    if final_key:
+        _emit(on_event, "final", reply=str(response.get(final_key, "")))
     response["name"]   = cfg.name
     response["forced"] = True
     return response
